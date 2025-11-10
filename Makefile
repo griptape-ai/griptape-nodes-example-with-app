@@ -46,6 +46,6 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 
-# Run the Gradio app
+# Run the Streamlit app
 run:
-	uv run python app.py
+	uv run streamlit run app.py
