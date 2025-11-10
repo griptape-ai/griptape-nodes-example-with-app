@@ -1,19 +1,22 @@
 # griptape-nodes-example-with-app
 
-A simple Gradio application that demonstrates invoking a Python subprocess with a button click.
+A Streamlit web application that demonstrates executing Griptape Nodes workflows with a simple, interactive interface.
 
 ## Features
 
-- Clean Gradio UI with a button to trigger subprocess execution
-- Displays subprocess output in real-time
-- Comprehensive error handling for subprocess failures
+- Clean Streamlit UI for interacting with AI agents
+- Direct workflow execution (no subprocess overhead)
+- Real-time workflow output display
+- Conversational state maintained across runs
+- Comprehensive error handling
 - Full development tooling (linting, type checking, spell checking)
-- Test suite with pytest
+- VSCode debugging support
 
 ## Requirements
 
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
+- OpenAI API key (for the Agent node)
 
 ## Installation
 
@@ -28,17 +31,32 @@ cd griptape-nodes-example-with-app
 make install
 ```
 
-This will create a virtual environment and install all required dependencies.
+3. Set up your environment variables:
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` and add your OpenAI API key:
+```
+OPENAI_API_KEY=your_actual_api_key_here
+```
 
 ## Usage
 
-Run the Gradio application:
+Run the Streamlit application:
 
 ```bash
 make run
 ```
 
-This will start the Gradio server and open the UI in your browser. Click the "Run Worker" button to invoke the worker subprocess.
+The app will automatically open in your browser at `http://localhost:8501`.
+
+### Using the Interface
+
+1. Enter your prompt in the text area (e.g., "Say hi")
+2. Click "Run Workflow"
+3. The AI agent will process your request and display the response
+4. The workflow maintains conversational state between runs
 
 ## Development
 
@@ -54,18 +72,24 @@ make format         # Check code formatting
 make lint           # Run linter
 make type-check     # Run type checker
 make spell-check    # Run spell checker
-make test           # Run unit tests
-make test-coverage  # Run tests with coverage report
 make clean          # Remove build artifacts and caches
-make run            # Run the Gradio app
+make run            # Run the Streamlit app
 ```
 
 ### Development Workflow
 
 1. Make your changes
 2. Run `make check` or `make fix` to ensure code quality
-3. Run `make test` to verify tests pass
-4. Commit your changes
+3. Commit your changes
+
+### Debugging
+
+Use VSCode's built-in debugger:
+
+1. Open the Run and Debug view (Cmd+Shift+D)
+2. Select "Debug Streamlit App" from the dropdown
+3. Press F5 or click the green play button
+4. Set breakpoints in [app.py](app.py) or [published_nodes_workflow.py](published_nodes_workflow.py)
 
 ### Code Style
 
@@ -81,30 +105,74 @@ This project follows specific code style guidelines documented in [CLAUDE.md](CL
 
 ```
 .
-├── app.py              # Main Gradio application
-├── worker.py           # Example worker script (invoked as subprocess)
-├── tests/              # Test suite
-│   └── test_app.py     # Application tests
-├── pyproject.toml      # Project dependencies and tool configuration
-├── Makefile            # Development commands
-├── CLAUDE.md           # Code style guidelines
-└── README.md           # This file
+├── app.py                        # Streamlit application
+├── published_nodes_workflow.py   # Griptape Nodes workflow definition
+├── pyproject.toml               # Project dependencies and tool configuration
+├── Makefile                     # Development commands
+├── CLAUDE.md                    # Code style guidelines
+├── .env                         # Environment variables (API keys)
+├── .env.example                 # Example environment variables
+└── README.md                    # This file
 ```
 
 ## How It Works
 
-1. The Gradio UI provides a simple interface with a button
-2. When clicked, [app.py](app.py) invokes [worker.py](worker.py) as a subprocess
-3. The subprocess output is captured and displayed in the UI
-4. Errors are handled gracefully with informative messages
+1. The Streamlit app loads [published_nodes_workflow.py](published_nodes_workflow.py) which defines the Griptape Nodes workflow
+2. When a user submits a prompt via the interface:
+   - The app calls `aexecute_workflow()` from the workflow module
+   - The user's prompt is passed to the workflow's "Start Flow" node
+   - The workflow executes the Agent node with the prompt
+   - The Agent's response is captured from the "End Flow" node output
+3. Results are displayed in the Streamlit interface with success/error indicators
+4. The workflow maintains state across executions, enabling conversational interactions
+
+## Workflow Details
+
+The included workflow ([published_nodes_workflow.py](published_nodes_workflow.py)) contains:
+
+- **Start Flow node**: Accepts user input (prompt)
+- **Text Input node**: Provides default text
+- **Agent node**: Griptape AI agent that processes the prompt
+- **End Flow node**: Returns the agent's response and execution status
+
+### Workflow Inputs
+
+- `prompt`: The user's message to the AI agent
+
+### Workflow Outputs
+
+- `output`: The agent's response
+- `was_successful`: Boolean indicating if workflow completed successfully
+- `result_details`: Additional details about execution
 
 ## Customization
 
-To customize the worker behavior:
+To customize the workflow:
 
-1. Edit [worker.py](worker.py) to perform your desired operations
-2. The worker script can access environment variables, read files, make API calls, etc.
-3. Output printed to stdout will be displayed in the Gradio UI
+1. Edit [published_nodes_workflow.py](published_nodes_workflow.py) or create a new workflow file
+2. Update the workflow import in [app.py](app.py) if using a different workflow
+3. Modify the Streamlit interface in [app.py](app.py) as needed
+
+## Troubleshooting
+
+### Missing API Key
+
+If you see an error about missing API keys:
+1. Ensure your `.env` file exists (copy from `.env.example`)
+2. Add your OpenAI API key: `OPENAI_API_KEY=sk-...`
+3. Restart the application
+
+### Workflow Execution Errors
+
+Check the console output for detailed error messages. Common issues:
+- Invalid API key
+- Network connectivity problems
+- Workflow configuration issues
+
+### Streamlit Caching
+
+If you see unexpected behavior, clear Streamlit's cache:
+- Press 'C' in the app (or use the menu: Settings → Clear cache)
 
 ## License
 

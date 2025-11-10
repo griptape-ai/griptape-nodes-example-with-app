@@ -1,93 +1,105 @@
-"""Tests for the Gradio application."""
+"""Tests for the Streamlit application."""
 
-import subprocess
-import sys
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-from app import create_ui, run_worker
+import pytest
 
-
-def test_create_ui() -> None:
-    """Test that the UI is created successfully."""
-    demo = create_ui()
-    assert demo is not None
+from app import execute_workflow, execute_workflow_async
 
 
-def test_run_worker_success() -> None:
-    """Test successful worker execution."""
-    mock_result = MagicMock()
-    mock_result.stdout = "Worker output"
-    mock_result.stderr = ""
-    mock_result.returncode = 0
+@pytest.mark.asyncio
+async def test_execute_workflow_async_success() -> None:
+    """Test successful workflow execution."""
+    mock_output = {
+        "End Flow": {
+            "output": "Hello from the agent!",
+            "was_successful": True,
+            "result_details": "Completed successfully",
+        }
+    }
 
-    with patch("subprocess.run", return_value=mock_result):
-        output = run_worker()
+    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
+        mock_execute.return_value = mock_output
 
-    assert "Worker output" in output
+        result = await execute_workflow_async("Say hello")
 
-
-def test_run_worker_timeout() -> None:
-    """Test worker timeout handling."""
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 30)):
-        output = run_worker()
-
-    assert "Error: Worker process timed out" in output
-
-
-def test_run_worker_process_error() -> None:
-    """Test worker process error handling."""
-    mock_error = subprocess.CalledProcessError(1, "cmd")
-    mock_error.stdout = "stdout content"
-    mock_error.stderr = "stderr content"
-
-    with patch("subprocess.run", side_effect=mock_error):
-        output = run_worker()
-
-    assert "Error: Worker process failed" in output
-    assert "exit code 1" in output
+    assert result["output"] == "Hello from the agent!"
+    assert result["was_successful"] == "true"
+    assert result["result_details"] == "Completed successfully"
+    mock_execute.assert_called_once()
 
 
-def test_run_worker_missing_file() -> None:
-    """Test handling of missing worker.py file."""
-    with patch("pathlib.Path.exists", return_value=False):
-        output = run_worker()
+@pytest.mark.asyncio
+async def test_execute_workflow_async_empty_prompt() -> None:
+    """Test workflow execution with empty prompt."""
+    result = await execute_workflow_async("")
 
-    assert "Error: worker.py not found" in output
-
-
-def test_run_worker_with_stderr() -> None:
-    """Test worker execution with stderr output."""
-    mock_result = MagicMock()
-    mock_result.stdout = "Worker output"
-    mock_result.stderr = "Warning: something"
-    mock_result.returncode = 0
-
-    with patch("subprocess.run", return_value=mock_result):
-        output = run_worker()
-
-    assert "Worker output" in output
-    assert "Warnings/Errors:" in output
-    assert "Warning: something" in output
+    assert result["output"] == ""
+    assert result["was_successful"] == "false"
+    assert "Prompt cannot be empty" in result["result_details"]
 
 
-def test_worker_script_exists() -> None:
-    """Test that worker.py exists in the expected location."""
-    worker_path = Path(__file__).parent.parent / "worker.py"
-    assert worker_path.exists(), "worker.py should exist in the project root"
+@pytest.mark.asyncio
+async def test_execute_workflow_async_no_output() -> None:
+    """Test workflow execution when workflow returns None."""
+    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
+        mock_execute.return_value = None
+
+        result = await execute_workflow_async("Say hello")
+
+    assert result["output"] == ""
+    assert result["was_successful"] == "false"
+    assert "Workflow did not produce output" in result["result_details"]
 
 
-def test_worker_script_runs() -> None:
-    """Test that worker.py can be executed successfully."""
-    worker_path = Path(__file__).parent.parent / "worker.py"
+@pytest.mark.asyncio
+async def test_execute_workflow_async_exception() -> None:
+    """Test workflow execution when an exception occurs."""
+    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
+        mock_execute.side_effect = RuntimeError("Workflow failed")
 
-    result = subprocess.run(
-        [sys.executable, str(worker_path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=5,
-    )
+        result = await execute_workflow_async("Say hello")
 
-    assert result.returncode == 0, f"worker.py failed with: {result.stderr}"
-    assert len(result.stdout) > 0, "worker.py should produce output"
+    assert result["output"] == ""
+    assert result["was_successful"] == "false"
+    assert "Workflow failed" in result["result_details"]
+
+
+def test_execute_workflow_sync_wrapper() -> None:
+    """Test the synchronous wrapper for workflow execution."""
+    mock_output = {
+        "End Flow": {
+            "output": "Sync test response",
+            "was_successful": True,
+            "result_details": "",
+        }
+    }
+
+    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
+        mock_execute.return_value = mock_output
+
+        result = execute_workflow("Test prompt")
+
+    assert result["output"] == "Sync test response"
+    assert result["was_successful"] == "true"
+    mock_execute.assert_called_once()
+
+
+def test_execute_workflow_sync_with_failure() -> None:
+    """Test the synchronous wrapper when workflow fails."""
+    mock_output = {
+        "End Flow": {
+            "output": "",
+            "was_successful": False,
+            "result_details": "Agent error",
+        }
+    }
+
+    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
+        mock_execute.return_value = mock_output
+
+        result = execute_workflow("Test prompt")
+
+    assert result["output"] == ""
+    assert result["was_successful"] == "false"
+    assert "Agent error" in result["result_details"]

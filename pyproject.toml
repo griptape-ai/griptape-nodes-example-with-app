@@ -1,15 +1,16 @@
 [project]
 name = "griptape-nodes-example-with-app"
 version = "0.1.0"
-description = "A simple Gradio app that invokes a Python subprocess"
+description = "A Streamlit app for executing Griptape Nodes workflows"
 authors = [
     { name = "James Clarendon", email = "james@example.com" }
 ]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "gradio>=5.0.0",
+    "streamlit>=1.41.0",
     "python-dotenv>=1.0.0",
+    "griptape-nodes @ git+https://github.com/griptape-ai/griptape-nodes.git@main",
 ]
 
 [dependency-groups]
@@ -17,11 +18,14 @@ dev = [
     "ruff>=0.8.0",
     "pyright>=1.1.0",
     "typos>=1.26.0",
+    "watchdog>=6.0.0",
 ]
 test = [
     "pytest>=8.0.0",
     "pytest-cov>=6.0.0",
     "pytest-xdist>=3.6.0",
+    "pytest-asyncio>=0.25.0",
+    "httpx>=0.28.0",
 ]
 
 [tool.ruff]
@@ -70,3 +74,8 @@ venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
 reportIncompatibleMethodOverride = false
+
+[tool.pytest.ini_options]
+pythonpath = "."
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
