@@ -124,22 +124,13 @@ You are only given facts as a JSON table."""
 You are providing a mission summary for the wing that just flew a sortie."""
 
     if "speechwriter_rules" not in st.session_state:
-        st.session_state.speechwriter_rules = """Generate a mission debriefing for the wing commander and any wingmen they may have had under them during this mission.
+        st.session_state.speechwriter_rules = """Generate a mission debriefing for the wing commander and any wingmen they may have had under them during this mission. You will be provided with a mission summary.
 
-You will be provided with a mission summary."""
+The debriefing will be delivered as audio, so prepare it for spoken delivery by inserting audio tags and adjusting punctuation, capitalization, and pacing to convey tone and emotion.
 
-    if "acting_coach_rules" not in st.session_state:
-        st.session_state.acting_coach_rules = """You will be preparing the mission debriefing for audio delivery by inserting audio tags and adjusting punctuation, capitalization, and pacing to convey tone and emotion.
+IMPORTANT: Keep the debriefing CONCISE. Aim for 2-3 paragraphs maximum. Focus on the most critical mission events, outcomes, and any notable performance or losses. Skip routine details - this is a brief battlefield debrief, not a full report.
 
-CRITICAL CONSTRAINTS:
-- You MUST preserve all factual content from the original debriefing. Do NOT change any facts, events, pilot names, ship names, objectives, outcomes, or tactical details.
-- You MAY ONLY make these changes:
-  1. Add audio delivery tags (emotions, pauses, breaths)
-  2. Adjust punctuation for pacing (ellipses, dashes, commas)
-  3. Add capitalization for emphasis
-  4. Rephrase awkward phrasing to sound more natural when spoken aloud WITHOUT changing the meaning
-
-Your role is to make the text sound natural when delivered by the character, NOT to rewrite or embellish the content. Think of yourself as a voice director, not a writer. Incorporate what you know about the character to steer their delivery.
+Think of yourself as both a writer and voice director. Incorporate what you know about the character to steer their delivery.
 
 Audio tags are supplied in [brackets]. These will be used to express how the line is delivered. Only use a single tag at a time; if you want to add both "stern" and "commanding", inject them as [stern][commanding].
 
@@ -299,9 +290,43 @@ Based on the mission summary delivered, generate a music generation prompt that 
     if "voice_preset" not in st.session_state:
         st.session_state.voice_preset = "James"
 
+    # Track last-used voice parameters for change detection
+    if "last_run_stability" not in st.session_state:
+        st.session_state.last_run_stability = None
+
+    if "last_run_speed" not in st.session_state:
+        st.session_state.last_run_speed = None
+
+    if "last_run_voice_preset" not in st.session_state:
+        st.session_state.last_run_voice_preset = None
+
+    # Workflow execution control
+    if "run_voice_generation_only" not in st.session_state:
+        st.session_state.run_voice_generation_only = False
+
+    if "workflow_running" not in st.session_state:
+        st.session_state.workflow_running = False
+
     # Output state
     if "workflow_outputs" not in st.session_state:
         st.session_state.workflow_outputs = None
+
+
+def voice_parameters_changed() -> bool:
+    """Check if current voice parameters differ from last run values.
+
+    Returns:
+        bool: True if any voice parameter has changed since last run, False otherwise.
+    """
+    # If no workflow has run yet, return False
+    if st.session_state.last_run_stability is None:
+        return False
+
+    return (
+        st.session_state.stability != st.session_state.last_run_stability
+        or st.session_state.speed != st.session_state.last_run_speed
+        or st.session_state.voice_preset != st.session_state.last_run_voice_preset
+    )
 
 
 async def execute_workflow_async(  # noqa: PLR0913
@@ -312,12 +337,12 @@ async def execute_workflow_async(  # noqa: PLR0913
     data_expert_3: str,
     summarizer: str,
     speechwriter_rules: str,
-    acting_coach_rules: str,
     music_coach_rules: str,
     game_data: str,
     stability: str,
     speed: float,
     voice_preset: str,
+    run_voice_generation_only: bool,
 ) -> dict:
     """Execute the Griptape Nodes workflow with all inputs.
 
@@ -328,13 +353,13 @@ async def execute_workflow_async(  # noqa: PLR0913
         data_expert_2: Second data expert rules
         data_expert_3: Third data expert rules
         summarizer: Summarizer rules
-        speechwriter_rules: Speechwriter guidelines
-        acting_coach_rules: Acting coach guidelines
+        speechwriter_rules: Speechwriter guidelines (includes audio delivery instructions)
         music_coach_rules: Music coach guidelines
         game_data: JSON string of game data
         stability: Voice stability setting (Creative, Natural, or Robust)
         speed: Voice speed (0.7 to 1.2)
         voice_preset: Voice preset name
+        run_voice_generation_only: If True, only regenerate voice audio without running full workflow
 
     Returns:
         dict: Contains workflow output including audio artifacts, text outputs, and retrospective.
@@ -348,12 +373,12 @@ async def execute_workflow_async(  # noqa: PLR0913
             "data_expert_3": data_expert_3,
             "summarizer": summarizer,
             "speechwriter_rules": speechwriter_rules,
-            "acting_coach_rules": acting_coach_rules,
             "music_coach_rules": music_coach_rules,
             "game_data": game_data,
             "stability": stability,
             "speed": speed,
             "voice_preset": voice_preset,
+            "run_voice_generation_only": run_voice_generation_only,
         }
     }
 
@@ -386,7 +411,6 @@ async def execute_workflow_async(  # noqa: PLR0913
             "voice_audio_artifact": end_flow_data.get("voice_audio_artifact"),
             "music_audio_artifact": end_flow_data.get("music_audio_artifact"),
             "speechwriter_output": end_flow_data.get("speechwriter_output", ""),
-            "acting_coach_output": end_flow_data.get("acting_coach_output", ""),
             "retrospective": end_flow_data.get("retrospective", ""),
         }
 
@@ -406,12 +430,11 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
     st.markdown("Generate audio content with AI-powered workflows")
 
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "World",
         "Character",
         "Data Experts",
         "Speechwriter",
-        "Acting Coach",
         "Music Coach",
         "Generation",
     ])
@@ -482,18 +505,8 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
             key="speechwriter_rules_input",
         )
 
-    # Acting Coach tab
-    with tab5:
-        st.header("Acting Coach Rules")
-        st.session_state.acting_coach_rules = st.text_area(
-            "Define how the character should deliver lines:",
-            value=st.session_state.acting_coach_rules,
-            height=400,
-            key="acting_coach_rules_input",
-        )
-
     # Music Coach tab
-    with tab6:
+    with tab5:
         st.header("Music Coach Rules")
         st.session_state.music_coach_rules = st.text_area(
             "Define the music coaching guidelines:",
@@ -503,7 +516,7 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
         )
 
     # Generation tab
-    with tab7:
+    with tab6:
         st.header("Generate Audio")
 
         # Add CSS for monospace font in JSON text area
@@ -526,10 +539,11 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                 value=st.session_state.game_data_json,
                 height=400,
                 key="game_data_json_input",
+                disabled=st.session_state.workflow_running
             )
 
             # Format JSON button
-            if st.button("📋 Format JSON", key="format_json_button", use_container_width=True):
+            if st.button("📋 Format JSON", key="format_json_button", use_container_width=True, disabled=st.session_state.workflow_running):
                 try:
                     json_str = st.session_state.game_data_json or "{}"
                     parsed = json.loads(json_str)
@@ -555,11 +569,14 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
             col_voice1, col_voice2, col_voice3 = st.columns(3)
 
             with col_voice1:
+                stability_options = ["Creative", "Natural", "Robust"]
+                current_stability_index = stability_options.index(st.session_state.stability) if st.session_state.stability in stability_options else 1
                 st.session_state.stability = st.selectbox(
                     "Stability:",
-                    options=["Creative", "Natural", "Robust"],
-                    index=1,  # Default to Natural
-                    key="stability_select"
+                    options=stability_options,
+                    index=current_stability_index,
+                    key="stability_select",
+                    disabled=st.session_state.workflow_running
                 )
 
             with col_voice2:
@@ -567,49 +584,112 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                     "Speed:",
                     min_value=0.7,
                     max_value=1.2,
-                    value=1.0,
-                    step=0.1,
-                    key="speed_slider"
+                    value=st.session_state.speed,
+                    step=0.01,
+                    key="speed_slider",
+                    disabled=st.session_state.workflow_running
                 )
 
             with col_voice3:
+                voice_options = ["Alexandra", "Antoni", "Austin", "Clyde", "Dave", "Domi",
+                                "Drew", "Fin", "Hope", "James", "Jane", "Paul",
+                                "Rachel", "Sarah", "Thomas"]
+                current_voice_index = voice_options.index(st.session_state.voice_preset) if st.session_state.voice_preset in voice_options else 9
                 st.session_state.voice_preset = st.selectbox(
                     "Voice:",
-                    options=["Alexandra", "Antoni", "Austin", "Clyde", "Dave", "Domi",
-                            "Drew", "Fin", "Hope", "James", "Jane", "Paul",
-                            "Rachel", "Sarah", "Thomas"],
-                    index=9,  # Default to James
-                    key="voice_preset_select"
+                    options=voice_options,
+                    index=current_voice_index,
+                    key="voice_preset_select",
+                    disabled=st.session_state.workflow_running
                 )
 
-            st.markdown("---")  # Separator before Run button
+            st.markdown("---")  # Separator before buttons
 
-            # Run button
+            # Determine button labels based on whether workflow has run
+            has_run = st.session_state.workflow_outputs is not None
+            main_button_label = "Re-run entire Griptape Nodes workflow" if has_run else "Run Griptape Nodes Workflow to Generate Audio"
+
+            # Re-run voice generation button (appears after first run)
+            voice_params_changed = voice_parameters_changed()
+            if has_run:
+                if st.button(
+                    "Re-run voice generation",
+                    use_container_width=True,
+                    disabled=not voice_params_changed or st.session_state.workflow_running,
+                    key="rerun_voice_button"
+                ):
+                    st.session_state.workflow_running = True
+                    try:
+                        with st.spinner("Regenerating voice audio..."):
+                            result = asyncio.run(
+                                execute_workflow_async(
+                                    world_rules=st.session_state.world_rules or "",
+                                    character_definition=st.session_state.character_definition or "",
+                                    data_expert_1=st.session_state.data_expert_1 or "",
+                                    data_expert_2=st.session_state.data_expert_2 or "",
+                                    data_expert_3=st.session_state.data_expert_3 or "",
+                                    summarizer=st.session_state.summarizer or "",
+                                    speechwriter_rules=st.session_state.speechwriter_rules or "",
+                                    music_coach_rules=st.session_state.music_coach_rules or "",
+                                    game_data=st.session_state.game_data_json or "{}",
+                                    stability=st.session_state.stability,
+                                    speed=st.session_state.speed,
+                                    voice_preset=st.session_state.voice_preset,
+                                    run_voice_generation_only=True,
+                                )
+                            )
+                            # Update voice parameters tracking
+                            st.session_state.last_run_stability = st.session_state.stability
+                            st.session_state.last_run_speed = st.session_state.speed
+                            st.session_state.last_run_voice_preset = st.session_state.voice_preset
+                            # Update only voice audio artifact in outputs
+                            if st.session_state.workflow_outputs is not None:
+                                st.session_state.workflow_outputs["voice_audio_artifact"] = result.get("voice_audio_artifact")
+                            st.success("✓ Voice audio regenerated successfully!")
+                    except Exception as e:
+                        st.error(f"✗ Voice regeneration failed: {e}")
+                    finally:
+                        st.session_state.workflow_running = False
+                        st.rerun()
+
+            # Main workflow button
             if st.button(
-                "Run Griptape Nodes Workflow to Generate Audio",
+                main_button_label,
                 type="primary",
                 use_container_width=True,
-                disabled=not json_valid,
+                disabled=not json_valid or st.session_state.workflow_running,
+                key="run_workflow_button"
             ):
-                with st.spinner("Generating audio..."):
-                    result = asyncio.run(
-                        execute_workflow_async(
-                            world_rules=st.session_state.world_rules or "",
-                            character_definition=st.session_state.character_definition or "",
-                            data_expert_1=st.session_state.data_expert_1 or "",
-                            data_expert_2=st.session_state.data_expert_2 or "",
-                            data_expert_3=st.session_state.data_expert_3 or "",
-                            summarizer=st.session_state.summarizer or "",
-                            speechwriter_rules=st.session_state.speechwriter_rules or "",
-                            acting_coach_rules=st.session_state.acting_coach_rules or "",
-                            music_coach_rules=st.session_state.music_coach_rules or "",
-                            game_data=st.session_state.game_data_json or "{}",
-                            stability=st.session_state.stability,
-                            speed=st.session_state.speed,
-                            voice_preset=st.session_state.voice_preset,
+                st.session_state.workflow_running = True
+                try:
+                    with st.spinner("Running workflow..."):
+                        result = asyncio.run(
+                            execute_workflow_async(
+                                world_rules=st.session_state.world_rules or "",
+                                character_definition=st.session_state.character_definition or "",
+                                data_expert_1=st.session_state.data_expert_1 or "",
+                                data_expert_2=st.session_state.data_expert_2 or "",
+                                data_expert_3=st.session_state.data_expert_3 or "",
+                                summarizer=st.session_state.summarizer or "",
+                                speechwriter_rules=st.session_state.speechwriter_rules or "",
+                                music_coach_rules=st.session_state.music_coach_rules or "",
+                                game_data=st.session_state.game_data_json or "{}",
+                                stability=st.session_state.stability,
+                                speed=st.session_state.speed,
+                                voice_preset=st.session_state.voice_preset,
+                                run_voice_generation_only=False,
+                            )
                         )
-                    )
-                    st.session_state.workflow_outputs = result
+                        st.session_state.workflow_outputs = result
+                        # Update voice parameters tracking
+                        st.session_state.last_run_stability = st.session_state.stability
+                        st.session_state.last_run_speed = st.session_state.speed
+                        st.session_state.last_run_voice_preset = st.session_state.voice_preset
+                except Exception as e:
+                    st.error(f"✗ Workflow failed: {e}")
+                finally:
+                    st.session_state.workflow_running = False
+                    st.rerun()
 
             # Display outputs if available
             if st.session_state.workflow_outputs is not None:
@@ -655,28 +735,15 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                         else:
                             st.info("No music audio available")
 
-                    # Text outputs with tabs for original vs massaged
-                    st.subheader("Monologue Outputs")
-
-                    mono_tab1, mono_tab2 = st.tabs(["Original Monologue", "Massaged for TTS"])
-
-                    with mono_tab1:
-                        st.text_area(
-                            "Original speech from character:",
-                            value=outputs.get("speechwriter_output", ""),
-                            height=200,
-                            disabled=True,
-                            key=f"speechwriter_output_display_{id(outputs)}",
-                        )
-
-                    with mono_tab2:
-                        st.text_area(
-                            "Acting coach's refined version for TTS:",
-                            value=outputs.get("acting_coach_output", ""),
-                            height=200,
-                            disabled=True,
-                            key=f"acting_coach_output_display_{id(outputs)}",
-                        )
+                    # Text output
+                    st.subheader("Debriefing Monologue")
+                    st.text_area(
+                        "Generated monologue for TTS:",
+                        value=outputs.get("speechwriter_output", ""),
+                        height=300,
+                        disabled=True,
+                        key=f"speechwriter_output_display_{id(outputs)}",
+                    )
 
                     # Retrospective
                     st.subheader("Retrospective")
