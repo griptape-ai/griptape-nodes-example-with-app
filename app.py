@@ -129,7 +129,17 @@ You are providing a mission summary for the wing that just flew a sortie."""
 You will be provided with a mission summary."""
 
     if "acting_coach_rules" not in st.session_state:
-        st.session_state.acting_coach_rules = """You will be altering the original mission briefing by inserting audio tags and adjusting punctuation and capitalization to convey tone and pacing. You can make changes to the text to make it more conversational or flow more naturally. Incorporate what you know about the character to steer their delivery.
+        st.session_state.acting_coach_rules = """You will be preparing the mission debriefing for audio delivery by inserting audio tags and adjusting punctuation, capitalization, and pacing to convey tone and emotion.
+
+CRITICAL CONSTRAINTS:
+- You MUST preserve all factual content from the original debriefing. Do NOT change any facts, events, pilot names, ship names, objectives, outcomes, or tactical details.
+- You MAY ONLY make these changes:
+  1. Add audio delivery tags (emotions, pauses, breaths)
+  2. Adjust punctuation for pacing (ellipses, dashes, commas)
+  3. Add capitalization for emphasis
+  4. Rephrase awkward phrasing to sound more natural when spoken aloud WITHOUT changing the meaning
+
+Your role is to make the text sound natural when delivered by the character, NOT to rewrite or embellish the content. Think of yourself as a voice director, not a writer. Incorporate what you know about the character to steer their delivery.
 
 Audio tags are supplied in [brackets]. These will be used to express how the line is delivered. Only use a single tag at a time; if you want to add both "stern" and "commanding", inject them as [stern][commanding].
 
@@ -279,6 +289,16 @@ Based on the mission summary delivered, generate a music generation prompt that 
   }
 }"""
 
+    # Voice generation parameters
+    if "stability" not in st.session_state:
+        st.session_state.stability = "Natural"
+
+    if "speed" not in st.session_state:
+        st.session_state.speed = 1.0
+
+    if "voice_preset" not in st.session_state:
+        st.session_state.voice_preset = "James"
+
     # Output state
     if "workflow_outputs" not in st.session_state:
         st.session_state.workflow_outputs = None
@@ -295,6 +315,9 @@ async def execute_workflow_async(  # noqa: PLR0913
     acting_coach_rules: str,
     music_coach_rules: str,
     game_data: str,
+    stability: str,
+    speed: float,
+    voice_preset: str,
 ) -> dict:
     """Execute the Griptape Nodes workflow with all inputs.
 
@@ -309,6 +332,9 @@ async def execute_workflow_async(  # noqa: PLR0913
         acting_coach_rules: Acting coach guidelines
         music_coach_rules: Music coach guidelines
         game_data: JSON string of game data
+        stability: Voice stability setting (Creative, Natural, or Robust)
+        speed: Voice speed (0.7 to 1.2)
+        voice_preset: Voice preset name
 
     Returns:
         dict: Contains workflow output including audio artifacts, text outputs, and retrospective.
@@ -325,6 +351,9 @@ async def execute_workflow_async(  # noqa: PLR0913
             "acting_coach_rules": acting_coach_rules,
             "music_coach_rules": music_coach_rules,
             "game_data": game_data,
+            "stability": stability,
+            "speed": speed,
+            "voice_preset": voice_preset,
         }
     }
 
@@ -520,6 +549,41 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                 st.error(f"✗ Invalid JSON: {e.msg}")
 
         with col_right:
+            # Voice generation settings
+            st.subheader("Voice Settings")
+
+            col_voice1, col_voice2, col_voice3 = st.columns(3)
+
+            with col_voice1:
+                st.session_state.stability = st.selectbox(
+                    "Stability:",
+                    options=["Creative", "Natural", "Robust"],
+                    index=1,  # Default to Natural
+                    key="stability_select"
+                )
+
+            with col_voice2:
+                st.session_state.speed = st.slider(
+                    "Speed:",
+                    min_value=0.7,
+                    max_value=1.2,
+                    value=1.0,
+                    step=0.1,
+                    key="speed_slider"
+                )
+
+            with col_voice3:
+                st.session_state.voice_preset = st.selectbox(
+                    "Voice:",
+                    options=["Alexandra", "Antoni", "Austin", "Clyde", "Dave", "Domi",
+                            "Drew", "Fin", "Hope", "James", "Jane", "Paul",
+                            "Rachel", "Sarah", "Thomas"],
+                    index=9,  # Default to James
+                    key="voice_preset_select"
+                )
+
+            st.markdown("---")  # Separator before Run button
+
             # Run button
             if st.button(
                 "Run Griptape Nodes Workflow to Generate Audio",
@@ -540,6 +604,9 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                             acting_coach_rules=st.session_state.acting_coach_rules or "",
                             music_coach_rules=st.session_state.music_coach_rules or "",
                             game_data=st.session_state.game_data_json or "{}",
+                            stability=st.session_state.stability,
+                            speed=st.session_state.speed,
+                            voice_preset=st.session_state.voice_preset,
                         )
                     )
                     st.session_state.workflow_outputs = result
