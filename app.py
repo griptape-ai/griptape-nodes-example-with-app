@@ -614,6 +614,7 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
             if has_run:
                 if st.button(
                     "Re-run voice generation",
+                    type="primary",
                     use_container_width=True,
                     disabled=not voice_params_changed or st.session_state.workflow_running,
                     key="rerun_voice_button"
