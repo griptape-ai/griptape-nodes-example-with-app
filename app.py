@@ -119,12 +119,14 @@ Be sure to summarize the contributions of each friendly participant. Where did t
 You are only given facts as a JSON table."""
 
     if "summarizer" not in st.session_state:
-        st.session_state.summarizer = """You are providing a mission summary to the Lt. Colonel for them to deliver to the wing that just flew the sortie.
+        st.session_state.summarizer = """Summarize the breakdowns each of the experts provided.
 
-Summarize the breakdowns each of the experts provided."""
+You are providing a mission summary for the wing that just flew a sortie."""
 
     if "speechwriter_rules" not in st.session_state:
-        st.session_state.speechwriter_rules = "Generate a mission summary for the wing commander and any wingmen they may have had under them during this mission."
+        st.session_state.speechwriter_rules = """Generate a mission debriefing for the wing commander and any wingmen they may have had under them during this mission.
+
+You will be provided with a mission summary."""
 
     if "acting_coach_rules" not in st.session_state:
         st.session_state.acting_coach_rules = """Based on what you know about this character, create an audio text-to-speech prompt that captures the character's tone and mood for this mission debriefing.
@@ -159,13 +161,13 @@ Based on the mission summary delivered, generate a music generation prompt that 
     ]
   },
   "secondary_objectives": [
-    "eliminate Dorkhir tanker"
+    "eliminate Fralthi cruiser"
   ],
   "sortie_squadron": [
     {
       "name": "Christopher Blair",
       "rank": "2nd Lieutenant",
-      "callsign": "Bluehair",
+      "callsign": "Morningstar",
       "role": "Wing Commander",
       "ship": "Hornet"
     },
@@ -207,14 +209,14 @@ Based on the mission summary delivered, generate a music generation prompt that 
       },
       {
         "location": "en route to waypoint 3",
-        "target": "Dorkhir tanker",
+        "target": "Fralthi cruiser",
         "guards": {
           "type": "heavy fighters",
           "count": 3
         },
         "decision": "engage",
         "outcome": {
-          "tanker": {
+          "cruiser": {
             "destroyed_by": "Blair",
             "weapons_used": [
               "dumbfire missiles",
@@ -252,9 +254,9 @@ Based on the mission summary delivered, generate a music generation prompt that 
     "enemies_escaped": 2,
     "notable_events": [
       "Blair damaged ship in asteroid collision at waypoint 2",
-      "Spirit's ship lost to enemy collision during tanker engagement",
+      "Spirit's ship lost to enemy collision during cruiser engagement",
       "Spirit ejected and recovered safely",
-      "Tanker destroyed before jump"
+      "Cruiser destroyed before jump"
     ]
   },
   "mission_results": {
@@ -477,6 +479,16 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
     with tab7:
         st.header("Generate Audio")
 
+        # Add CSS for monospace font in JSON text area
+        st.markdown("""
+        <style>
+        textarea[aria-label="Paste your JSON game data:"] {
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace !important;
+            font-size: 13px !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         # Two-column layout
         col_left, col_right = st.columns([1, 2])
 
@@ -488,6 +500,16 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                 height=400,
                 key="game_data_json_input",
             )
+
+            # Format JSON button
+            if st.button("📋 Format JSON", key="format_json_button", use_container_width=True):
+                try:
+                    json_str = st.session_state.game_data_json or "{}"
+                    parsed = json.loads(json_str)
+                    st.session_state.game_data_json = json.dumps(parsed, indent=2)
+                    st.rerun()
+                except json.JSONDecodeError:
+                    st.warning("⚠️ Cannot format invalid JSON - fix errors first")
 
             # Validate JSON
             json_valid = False
