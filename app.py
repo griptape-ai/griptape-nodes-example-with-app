@@ -129,9 +129,7 @@ You are providing a mission summary for the wing that just flew a sortie."""
 You will be provided with a mission summary."""
 
     if "acting_coach_rules" not in st.session_state:
-        st.session_state.acting_coach_rules = """Based on what you know about this character, create an audio text-to-speech prompt that captures the character's tone and mood for this mission debriefing.
-
-You will be altering the original mission briefing by inserting audio tags and adjusting punctuation and capitalization to convey tone and pacing.
+        st.session_state.acting_coach_rules = """You will be altering the original mission briefing by inserting audio tags and adjusting punctuation and capitalization to convey tone and pacing. You can make changes to the text to make it more conversational or flow more naturally. Incorporate what you know about the character to steer their delivery.
 
 Audio tags are supplied in [brackets]. These will be used to express how the line is delivered. Only use a single tag at a time; if you want to add both "stern" and "commanding", inject them as [stern][commanding].
 
@@ -168,7 +166,7 @@ Based on the mission summary delivered, generate a music generation prompt that 
       "name": "Christopher Blair",
       "rank": "2nd Lieutenant",
       "callsign": "Morningstar",
-      "role": "Wing Commander",
+      "role": "wing_commander",
       "ship": "Hornet"
     },
     {
@@ -192,19 +190,19 @@ Based on the mission summary delivered, generate a music generation prompt that 
         "enemy_count": 4,
         "enemy_type": "Kilrathi fighters",
         "outcome": {
-          "destroyed_by_blair": 3,
+          "destroyed_by_wing_commander": 3,
           "methods": {
             "IR_missiles": 2,
             "laser_guns": 1
           },
-          "damaged_by_spirit": 1,
+          "damaged_by_wingman": 1,
           "escaped": 1
         }
       },
       {
         "location": "waypoint 2",
         "hazard": "asteroid field",
-        "incident": "Blair collided with asteroid, one gun damaged",
+        "incident": "wing_commander collided with asteroid, one gun damaged",
         "decision": "mission continued"
       },
       {
@@ -217,14 +215,14 @@ Based on the mission summary delivered, generate a music generation prompt that 
         "decision": "engage",
         "outcome": {
           "cruiser": {
-            "destroyed_by": "Blair",
+            "destroyed_by": "wing_commander",
             "weapons_used": [
               "dumbfire missiles",
               "guns"
             ]
           },
           "guards": {
-            "destroyed_by_spirit": 2,
+            "destroyed_by_wingman": 2,
             "methods": [
               "guns",
               "missiles"
@@ -232,8 +230,8 @@ Based on the mission summary delivered, generate a music generation prompt that 
             "escaped": 1
           },
           "casualties": {
-            "spirit_ship": "destroyed by enemy collision",
-            "spirit_pilot": "ejected"
+            "wingman_ship": "destroyed by enemy collision",
+            "wingman_pilot": "ejected"
           }
         }
       },
@@ -247,15 +245,15 @@ Based on the mission summary delivered, generate a music generation prompt that 
       }
     ],
     "kills": {
-      "blair": 4,
-      "spirit": 2,
+      "wing_commander": 4,
+      "wingman": 2,
       "total": 6
     },
     "enemies_escaped": 2,
     "notable_events": [
-      "Blair damaged ship in asteroid collision at waypoint 2",
-      "Spirit's ship lost to enemy collision during cruiser engagement",
-      "Spirit ejected and recovered safely",
+      "wing_commander damaged ship in asteroid collision at waypoint 2",
+      "wingman's ship lost to enemy collision during cruiser engagement",
+      "wingman ejected and recovered safely",
       "Cruiser destroyed before jump"
     ]
   },
@@ -264,11 +262,11 @@ Based on the mission summary delivered, generate a music generation prompt that 
     "secondary_objective_status": "completed",
     "mission_outcome": "success",
     "pilot_status": {
-      "blair": {
+      "wing_commander": {
         "status": "returned",
         "ship_damage": "one gun destroyed (asteroid collision)"
       },
-      "spirit": {
+      "wingman": {
         "status": "recovered safely",
         "ship_status": "lost (enemy collision)",
         "present_at_debriefing": true
@@ -601,7 +599,7 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                             value=outputs.get("speechwriter_output", ""),
                             height=200,
                             disabled=True,
-                            key="speechwriter_output_display",
+                            key=f"speechwriter_output_display_{id(outputs)}",
                         )
 
                     with mono_tab2:
@@ -610,7 +608,7 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                             value=outputs.get("acting_coach_output", ""),
                             height=200,
                             disabled=True,
-                            key="acting_coach_output_display",
+                            key=f"acting_coach_output_display_{id(outputs)}",
                         )
 
                     # Retrospective
