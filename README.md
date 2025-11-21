@@ -4,9 +4,11 @@ A Streamlit web application for generating audio content using AI-powered Gripta
 
 ## Features
 
-- Multi-tab interface for organizing workflow inputs (World, Character, Data Experts, Speechwriter, Acting Coach, Music Coach, Generation)
-- JSON validation for game data input
+- Multi-tab interface for organizing workflow inputs (World, Character, Data Experts, Speechwriter, Music Coach, Generation)
+- JSON validation and auto-formatting for game data input
 - Real-time audio generation with voice and music outputs
+- Voice generation controls (stability, speed, voice preset)
+- Quick voice-only regeneration without re-running entire workflow
 - Audio playback directly in the browser
 - Persistent state across page refreshes
 - Direct workflow execution (no subprocess overhead)
@@ -55,15 +57,14 @@ The app will automatically open in your browser at `http://localhost:8501`.
 
 ### Using the Interface
 
-The application is organized into seven tabs:
+The application is organized into six tabs:
 
 1. **World**: Define the rules and context of your world
 2. **Character**: Define who the character is and how they think
 3. **Data Experts**: Configure three data experts and a summarizer
-4. **Speechwriter**: Define the type of monologue the character should deliver (based on data analysis)
-5. **Acting Coach**: Define how the monologue should be refined for tone and inflection (before TTS)
-6. **Music Coach**: Configure music generation guidelines (based on the original monologue)
-7. **Generation**: Execute the workflow and view outputs
+4. **Speechwriter**: Define the debriefing monologue style (includes audio delivery instructions)
+5. **Music Coach**: Configure music generation guidelines
+6. **Generation**: Execute the workflow and view outputs
 
 #### Generation Tab
 
@@ -71,16 +72,23 @@ The Generation tab has a two-column layout:
 
 **Left Column (Game Data)**:
 - Paste your JSON game data
+- Format JSON button for auto-formatting
 - Real-time JSON validation with error messages
-- Run button disabled if JSON is invalid
+- Input disabled while workflow is running
 
-**Right Column (Outputs)**:
-- "Run Griptape Nodes Workflow to Generate Audio" button
-- Voice and music audio players (after generation)
-- Monologue outputs with tabs:
-  - **Original Monologue**: The character's initial speech based on data analysis
-  - **Massaged for TTS**: The acting coach's refined version (used for voice generation)
-- Retrospective section with markdown support (data experts' feedback on what additional data would improve results)
+**Right Column (Voice Settings & Execution)**:
+- **Voice Settings**:
+  - **Stability**: Creative, Natural, or Robust (affects voice consistency)
+  - **Speed**: 0.7 to 1.2 (adjustable in 0.01 increments for fine control)
+  - **Voice**: 15 voice preset options
+  - All settings disabled while workflow is running
+- **Execution Buttons**:
+  - **"Run Griptape Nodes Workflow to Generate Audio"** (before first run) or **"Re-run entire Griptape Nodes workflow"** (after first run)
+  - **"Re-run voice generation"** (appears after first run, enabled only when voice settings change) - quickly regenerates voice audio without re-running the full workflow
+- **Outputs** (after generation):
+  - Voice and music audio players
+  - Debriefing monologue (includes audio tags for TTS delivery)
+  - Retrospective section with markdown support
 
 All inputs persist across page refreshes, so you can safely reload the browser without losing your work.
 
@@ -148,16 +156,23 @@ This project follows specific code style guidelines documented in [CLAUDE.md](CL
 1. The Streamlit app loads [published_nodes_workflow.py](published_nodes_workflow.py) which defines the Griptape Nodes workflow
 2. User inputs are organized across multiple tabs for better organization
 3. Session state preserves all inputs across page refreshes
-4. When the user clicks "Run Griptape Nodes Workflow to Generate Audio":
+4. When the user clicks "Run Griptape Nodes Workflow to Generate Audio" (or "Re-run entire Griptape Nodes workflow"):
    - All inputs from all tabs are gathered
    - JSON game data is validated before submission
-   - The `LocalWorkflowExecutor` executes the workflow with all inputs
+   - Voice settings (stability, speed, voice_preset) are captured
+   - The `LocalWorkflowExecutor` executes the workflow with all inputs and `run_voice_generation_only=False`
    - The workflow generates voice and music audio files
-5. Results are displayed in the Generation tab with:
-   - Audio players for voice and music (local files)
-   - Text outputs from speechwriter and acting coach
+   - Voice parameter tracking is updated for change detection
+5. When the user adjusts voice settings and clicks "Re-run voice generation":
+   - Only voice-related parameters are sent to the workflow
+   - The workflow skips data analysis and monologue generation
+   - Only the voice audio is regenerated with new settings
+   - Music audio and text outputs remain unchanged
+6. Results are displayed in the Generation tab with:
+   - Audio players for voice and music
+   - Debriefing monologue text output
    - Markdown retrospective analysis
-6. The workflow maintains state across executions via the cached `LocalWorkflowExecutor`
+7. The workflow maintains state across executions via the cached `LocalWorkflowExecutor`
 
 ### Workflow Pipeline
 
@@ -165,12 +180,12 @@ The AI-powered workflow processes data through multiple stages:
 
 1. **Data Analysis**: Raw JSON data is analyzed by three specialized data experts, each focusing on different aspects
 2. **Summarization**: A summarizer agent consolidates the experts' findings into a coherent analysis
-3. **Monologue Generation**: The character (informed by their personality and world context) creates a monologue based on the summary
-4. **Parallel Processing**:
-   - **Voice Path**: Acting coach refines the monologue for tone and inflection → Text-to-Speech → Voice audio
-   - **Music Path**: Music coach analyzes the original monologue's tone → Music generation → Music audio
+3. **Debriefing Generation**: The speechwriter (informed by character personality and world context) creates a concise debriefing monologue with audio delivery tags
+4. **Parallel Audio Processing**:
+   - **Voice Path**: Text-to-Speech with configurable stability, speed, and voice preset → Voice audio
+   - **Music Path**: Music coach analyzes the monologue's tone → Music generation → Music audio
 5. **Retrospective**: Data experts reconvene to identify what additional data would have improved their analysis
-6. **Output**: Returns original monologue, refined monologue, voice audio, music audio, and retrospective
+6. **Output**: Returns debriefing monologue, voice audio, music audio, and retrospective
 
 ## Workflow Details
 
@@ -184,22 +199,24 @@ The workflow accepts the following inputs through the "Start Flow" node:
 - `character_definition`: Character traits and personality
 - `data_expert_1`, `data_expert_2`, `data_expert_3`: Three data expert configurations
 - `summarizer`: Summarizer configuration
-- `speechwriter_rules`: Guidelines for speech creation
-- `acting_coach_rules`: Direction for line delivery
+- `speechwriter_rules`: Guidelines for debriefing creation (includes audio delivery instructions)
 - `music_coach_rules`: Music coaching guidelines
-- `game_data`: JSON object containing game-specific data
+- `game_data`: JSON string containing mission/game data
+- `stability`: Voice stability setting (Creative, Natural, or Robust)
+- `speed`: Voice speed (0.7 to 1.2)
+- `voice_preset`: Voice preset name (e.g., "James", "Rachel", etc.)
+- `run_voice_generation_only`: Boolean flag to skip full workflow and only regenerate voice audio
 
 ### Workflow Outputs
 
 The workflow returns through the "End Flow" node:
 
 - `was_successful`: Boolean indicating success/failure
-- `voice_audio_path`: Path to generated voice audio file
-- `music_audio_path`: Path to generated music audio file
-- `speechwriter_output`: Generated speech text
-- `acting_coach_output`: Acting direction and notes
-- `retrospective`: Markdown-formatted analysis
-- `error`: Error message (if applicable)
+- `result_details`: Details about workflow execution
+- `voice_audio_artifact`: AudioUrlArtifact containing voice audio
+- `music_audio_artifact`: AudioUrlArtifact containing music audio
+- `speechwriter_output`: Generated debriefing monologue with audio tags
+- `retrospective`: Markdown-formatted analysis from data experts
 
 ## Customization
 
