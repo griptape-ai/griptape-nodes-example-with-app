@@ -1,105 +1,149 @@
 """Tests for the Streamlit application."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app import execute_workflow, execute_workflow_async
+from app import execute_workflow_async
 
 
 @pytest.mark.asyncio
 async def test_execute_workflow_async_success() -> None:
     """Test successful workflow execution."""
-    mock_output = {
+    # Create mock AudioUrlArtifact-like objects
+    mock_voice_artifact = MagicMock()
+    mock_voice_artifact.value = "file:///path/to/voice.wav"
+
+    mock_music_artifact = MagicMock()
+    mock_music_artifact.value = "file:///path/to/music.mp3"
+
+    mock_executor = MagicMock()
+    mock_executor.arun = AsyncMock()
+    mock_executor.output = {
         "End Flow": {
-            "output": "Hello from the agent!",
             "was_successful": True,
-            "result_details": "Completed successfully",
+            "result_details": "Success",
+            "voice_audio_artifact": mock_voice_artifact,
+            "music_audio_artifact": mock_music_artifact,
+            "speechwriter_output": "This is a test speech.",
+            "acting_coach_output": "Deliver with confidence.",
+            "retrospective": "# Retrospective\n\nEverything went well.",
         }
     }
 
-    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
-        mock_execute.return_value = mock_output
+    with (
+        patch("app.get_workflow_executor", return_value=mock_executor),
+        patch("app._ensure_workflow_context"),
+        patch("streamlit.session_state", {"executor_initialized": True}),
+    ):
+        result = await execute_workflow_async(
+            world_rules="Test world",
+            character_definition="Test character",
+            data_expert_1="Expert 1",
+            data_expert_2="Expert 2",
+            data_expert_3="Expert 3",
+            summarizer="Summarizer",
+            speechwriter_rules="Speech rules",
+            acting_coach_rules="Acting rules",
+            music_coach_rules="Music rules",
+            game_data='{"test": "data"}',
+        )
 
-        result = await execute_workflow_async("Say hello")
-
-    assert result["output"] == "Hello from the agent!"
-    assert result["was_successful"] == "true"
-    assert result["result_details"] == "Completed successfully"
-    mock_execute.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_execute_workflow_async_empty_prompt() -> None:
-    """Test workflow execution with empty prompt."""
-    result = await execute_workflow_async("")
-
-    assert result["output"] == ""
-    assert result["was_successful"] == "false"
-    assert "Prompt cannot be empty" in result["result_details"]
+    assert result["was_successful"] is True
+    assert result["result_details"] == "Success"
+    assert result["voice_audio_artifact"].value == "file:///path/to/voice.wav"
+    assert result["music_audio_artifact"].value == "file:///path/to/music.mp3"
+    assert result["speechwriter_output"] == "This is a test speech."
+    assert result["acting_coach_output"] == "Deliver with confidence."
+    assert "Retrospective" in result["retrospective"]
 
 
 @pytest.mark.asyncio
 async def test_execute_workflow_async_no_output() -> None:
     """Test workflow execution when workflow returns None."""
-    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
-        mock_execute.return_value = None
+    mock_executor = MagicMock()
+    mock_executor.arun = AsyncMock()
+    mock_executor.output = None
 
-        result = await execute_workflow_async("Say hello")
+    with (
+        patch("app.get_workflow_executor", return_value=mock_executor),
+        patch("app._ensure_workflow_context"),
+        patch("streamlit.session_state", {"executor_initialized": True}),
+    ):
+        result = await execute_workflow_async(
+            world_rules="Test world",
+            character_definition="Test character",
+            data_expert_1="Expert 1",
+            data_expert_2="Expert 2",
+            data_expert_3="Expert 3",
+            summarizer="Summarizer",
+            speechwriter_rules="Speech rules",
+            acting_coach_rules="Acting rules",
+            music_coach_rules="Music rules",
+            game_data='{"test": "data"}',
+        )
 
-    assert result["output"] == ""
-    assert result["was_successful"] == "false"
+    assert result["was_successful"] is False
     assert "Workflow did not produce output" in result["result_details"]
 
 
 @pytest.mark.asyncio
 async def test_execute_workflow_async_exception() -> None:
     """Test workflow execution when an exception occurs."""
-    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
-        mock_execute.side_effect = RuntimeError("Workflow failed")
+    mock_executor = MagicMock()
+    mock_executor.arun = AsyncMock(side_effect=RuntimeError("Workflow failed"))
 
-        result = await execute_workflow_async("Say hello")
+    with (
+        patch("app.get_workflow_executor", return_value=mock_executor),
+        patch("app._ensure_workflow_context"),
+        patch("streamlit.session_state", {"executor_initialized": True}),
+    ):
+        result = await execute_workflow_async(
+            world_rules="Test world",
+            character_definition="Test character",
+            data_expert_1="Expert 1",
+            data_expert_2="Expert 2",
+            data_expert_3="Expert 3",
+            summarizer="Summarizer",
+            speechwriter_rules="Speech rules",
+            acting_coach_rules="Acting rules",
+            music_coach_rules="Music rules",
+            game_data='{"test": "data"}',
+        )
 
-    assert result["output"] == ""
-    assert result["was_successful"] == "false"
+    assert result["was_successful"] is False
     assert "Workflow failed" in result["result_details"]
 
 
-def test_execute_workflow_sync_wrapper() -> None:
-    """Test the synchronous wrapper for workflow execution."""
-    mock_output = {
+@pytest.mark.asyncio
+async def test_execute_workflow_async_with_workflow_error() -> None:
+    """Test workflow execution when the workflow reports an error."""
+    mock_executor = MagicMock()
+    mock_executor.arun = AsyncMock()
+    mock_executor.output = {
         "End Flow": {
-            "output": "Sync test response",
-            "was_successful": True,
-            "result_details": "",
-        }
-    }
-
-    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
-        mock_execute.return_value = mock_output
-
-        result = execute_workflow("Test prompt")
-
-    assert result["output"] == "Sync test response"
-    assert result["was_successful"] == "true"
-    mock_execute.assert_called_once()
-
-
-def test_execute_workflow_sync_with_failure() -> None:
-    """Test the synchronous wrapper when workflow fails."""
-    mock_output = {
-        "End Flow": {
-            "output": "",
             "was_successful": False,
-            "result_details": "Agent error",
+            "result_details": "Agent processing error",
         }
     }
 
-    with patch("app.aexecute_workflow", new_callable=AsyncMock) as mock_execute:
-        mock_execute.return_value = mock_output
+    with (
+        patch("app.get_workflow_executor", return_value=mock_executor),
+        patch("app._ensure_workflow_context"),
+        patch("streamlit.session_state", {"executor_initialized": True}),
+    ):
+        result = await execute_workflow_async(
+            world_rules="Test world",
+            character_definition="Test character",
+            data_expert_1="Expert 1",
+            data_expert_2="Expert 2",
+            data_expert_3="Expert 3",
+            summarizer="Summarizer",
+            speechwriter_rules="Speech rules",
+            acting_coach_rules="Acting rules",
+            music_coach_rules="Music rules",
+            game_data='{"test": "data"}',
+        )
 
-        result = execute_workflow("Test prompt")
-
-    assert result["output"] == ""
-    assert result["was_successful"] == "false"
-    assert "Agent error" in result["result_details"]
+    assert result["was_successful"] is False
+    assert result["result_details"] == "Agent processing error"
