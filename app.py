@@ -1,8 +1,11 @@
 """Streamlit application for executing Griptape Nodes workflows."""
 
 import asyncio
+import importlib.util
 import json
 import logging
+import sys
+from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -25,8 +28,44 @@ st.set_page_config(
     layout="wide",
 )
 
-# Import the workflow to initialize it (module imported for side effects)
-import published_nodes_workflow  # noqa: F401, E402 # pyright: ignore[reportUnusedImport]
+# Default workflow path (relative to this file)
+DEFAULT_WORKFLOW_PATH = Path(__file__).parent / "published_nodes_workflow.py"
+
+
+def _load_workflow_module(workflow_path: Path | str) -> None:
+    """Load a workflow module from a file path.
+
+    Args:
+        workflow_path: Path to the workflow Python file
+
+    Raises:
+        FileNotFoundError: If the workflow file doesn't exist
+        ImportError: If the workflow module cannot be imported
+    """
+    workflow_path = Path(workflow_path)
+
+    if not workflow_path.exists():
+        raise FileNotFoundError(f"Workflow file not found: {workflow_path}")
+
+    if not workflow_path.is_file():
+        raise ValueError(f"Workflow path is not a file: {workflow_path}")
+
+    # Load the module from the file path
+    module_name = workflow_path.stem
+    spec = importlib.util.spec_from_file_location(module_name, workflow_path)
+
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load workflow from: {workflow_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    logger.info(f"Loaded workflow from: {workflow_path}")
+
+
+# Load the workflow on app startup
+_load_workflow_module(DEFAULT_WORKFLOW_PATH)
 
 
 def _ensure_workflow_context() -> None:
