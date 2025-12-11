@@ -4,6 +4,10 @@
 install:
 	uv sync --all-groups
 
+# Upgrade all dependencies to their latest versions
+upgrade:
+	uv sync --all-groups --upgrade
+
 # Run all checks
 check: format lint type-check spell-check
 
