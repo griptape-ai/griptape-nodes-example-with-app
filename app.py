@@ -1,15 +1,16 @@
-"""Streamlit application for executing Griptape Nodes workflows."""
+"""Streamlit application for executing Griptape Nodes workflows via HTTP."""
 
 import asyncio
 import json
 import logging
+from typing import Any
 
+import httpx
 import streamlit as st
 from dotenv import load_dotenv
-from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
-from griptape_nodes.drivers.storage.storage_backend import StorageBackend
-from griptape_nodes.retained_mode.events.flow_events import GetTopLevelFlowRequest, GetTopLevelFlowResultSuccess
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
+
+from workflow_server_manager import WorkflowServerManager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,33 +26,34 @@ st.set_page_config(
     layout="wide",
 )
 
-# Import the workflow to initialize it (module imported for side effects)
-import published_nodes_workflow  # noqa: F401, E402 # pyright: ignore[reportUnusedImport]
-
-
-def _ensure_workflow_context() -> None:
-    """Ensure the workflow context is properly set up."""
-    context_manager = GriptapeNodes.ContextManager()
-    if not context_manager.has_current_flow():
-        top_level_flow_request = GetTopLevelFlowRequest()
-        top_level_flow_result = GriptapeNodes.handle_request(top_level_flow_request)
-        if isinstance(top_level_flow_result, GetTopLevelFlowResultSuccess) and top_level_flow_result.flow_name is not None:
-            flow_manager = GriptapeNodes.FlowManager()
-            flow_obj = flow_manager.get_flow_by_name(top_level_flow_result.flow_name)
-            context_manager.push_flow(flow_obj)
-
 
 @st.cache_resource
-def get_workflow_executor() -> LocalWorkflowExecutor:
-    """Initialize and return a cached LocalWorkflowExecutor instance.
+def get_server_manager() -> WorkflowServerManager:
+    """Get or create the workflow server manager."""
+    return WorkflowServerManager.get_instance()
 
-    This ensures the executor is initialized only once and reused across runs.
+
+async def call_workflow_server(port: int, flow_input: dict) -> dict:
+    """Call a workflow server's /run endpoint.
+
+    Args:
+        port: The port the workflow server is running on
+        flow_input: The complete flow input dict (including "Start Flow" key)
+
+    Returns:
+        The workflow output dict from the server response
     """
-    storage_backend_enum = StorageBackend.LOCAL
-    return LocalWorkflowExecutor(storage_backend=storage_backend_enum)
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        response = await client.post(
+            f"http://localhost:{port}/run",
+            json={"flow_input": flow_input},
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result.get("output", {})
 
 
-def _initialize_session_state() -> None:  # noqa: C901
+def _initialize_session_state() -> None:  # noqa: C901, PLR0912
     """Initialize all session state variables with default values."""
     # Text area defaults (placeholders until user provides actual defaults)
     if "world_rules" not in st.session_state:
@@ -342,9 +344,10 @@ async def execute_workflow_async(  # noqa: PLR0913
     stability: str,
     speed: float,
     voice_preset: str,
+    *,
     run_voice_generation_only: bool,
 ) -> dict:
-    """Execute the Griptape Nodes workflow with all inputs.
+    """Execute the Griptape Nodes workflow via HTTP.
 
     Args:
         world_rules: World context and rules
@@ -382,28 +385,27 @@ async def execute_workflow_async(  # noqa: PLR0913
         }
     }
 
+    manager = get_server_manager()
+    port = manager.get_port("published_nodes_workflow")
+
+    if port is None:
+        return {
+            "was_successful": False,
+            "result_details": "Workflow server not configured",
+        }
+
     try:
-        # Get the cached executor instance
-        executor = get_workflow_executor()
+        output = await call_workflow_server(port, flow_input)
 
-        # Ensure workflow context is set up
-        _ensure_workflow_context()
-
-        # Initialize the executor context manager on first use
-        if "executor_initialized" not in st.session_state:
-            await executor.__aenter__()
-            st.session_state.executor_initialized = True
-
-        # Run the workflow using the existing executor
-        await executor.arun(flow_input=flow_input, pickle_control_flow_result=False)
-
-        if executor.output is None:
+        # Check for error in output
+        if "error" in output:
             return {
                 "was_successful": False,
-                "result_details": "Workflow did not produce output",
+                "result_details": f"Workflow error: {output['error']}",
             }
 
-        end_flow_data = executor.output.get("End Flow", {})
+        # Parse the End Flow data from the raw output
+        end_flow_data = output.get("End Flow", {})
 
         return {
             "was_successful": end_flow_data.get("was_successful", False),
@@ -413,31 +415,52 @@ async def execute_workflow_async(  # noqa: PLR0913
             "speechwriter_output": end_flow_data.get("speechwriter_output", ""),
             "retrospective": end_flow_data.get("retrospective", ""),
         }
-
-    except Exception as e:
-        logger.exception("Workflow execution failed")
+    except httpx.RequestError as e:
+        logger.exception("Failed to call workflow server")
         return {
             "was_successful": False,
-            "result_details": f"Error: {e!s}",
+            "result_details": f"Failed to connect to workflow server: {e}",
         }
+    except httpx.HTTPStatusError as e:
+        logger.exception("Workflow server returned error")
+        return {
+            "was_successful": False,
+            "result_details": f"Workflow server error: {e.response.status_code}",
+        }
+
+
+def get_audio_artifact_value(artifact: Any) -> str | None:
+    """Extract the URL/path from an AudioUrlArtifact or dict artifact."""
+    if artifact is None:
+        return None
+    if isinstance(artifact, AudioUrlArtifact) and hasattr(artifact, "value"):
+        return artifact.value
+    if isinstance(artifact, dict) and "value" in artifact:
+        return artifact["value"]
+    return None
 
 
 def main() -> None:  # noqa: PLR0915, PLR0912, C901
     """Main Streamlit application."""
     _initialize_session_state()
 
+    # Ensure workflow servers are started
+    get_server_manager()
+
     st.title("🎵 Griptape Nodes Audio Generation")
     st.markdown("Generate audio content with AI-powered workflows")
 
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "World",
-        "Character",
-        "Data Experts",
-        "Speechwriter",
-        "Music Coach",
-        "Generation",
-    ])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        [
+            "World",
+            "Character",
+            "Data Experts",
+            "Speechwriter",
+            "Music Coach",
+            "Generation",
+        ]
+    )
 
     # World tab
     with tab1:
@@ -520,14 +543,17 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
         st.header("Generate Audio")
 
         # Add CSS for monospace font in JSON text area
-        st.markdown("""
+        st.markdown(
+            """
         <style>
         textarea[aria-label="Paste your JSON game data:"] {
             font-family: 'Monaco', 'Menlo', 'Courier New', monospace !important;
             font-size: 13px !important;
         }
         </style>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
         # Two-column layout
         col_left, col_right = st.columns([1, 2])
@@ -539,11 +565,16 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                 value=st.session_state.game_data_json,
                 height=400,
                 key="game_data_json_input",
-                disabled=st.session_state.workflow_running
+                disabled=st.session_state.workflow_running,
             )
 
             # Format JSON button
-            if st.button("📋 Format JSON", key="format_json_button", use_container_width=True, disabled=st.session_state.workflow_running):
+            if st.button(
+                "📋 Format JSON",
+                key="format_json_button",
+                use_container_width=True,
+                disabled=st.session_state.workflow_running,
+            ):
                 try:
                     json_str = st.session_state.game_data_json or "{}"
                     parsed = json.loads(json_str)
@@ -570,13 +601,17 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
 
             with col_voice1:
                 stability_options = ["Creative", "Natural", "Robust"]
-                current_stability_index = stability_options.index(st.session_state.stability) if st.session_state.stability in stability_options else 1
+                current_stability_index = (
+                    stability_options.index(st.session_state.stability)
+                    if st.session_state.stability in stability_options
+                    else 1
+                )
                 st.session_state.stability = st.selectbox(
                     "Stability:",
                     options=stability_options,
                     index=current_stability_index,
                     key="stability_select",
-                    disabled=st.session_state.workflow_running
+                    disabled=st.session_state.workflow_running,
                 )
 
             with col_voice2:
@@ -587,27 +622,47 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                     value=st.session_state.speed,
                     step=0.01,
                     key="speed_slider",
-                    disabled=st.session_state.workflow_running
+                    disabled=st.session_state.workflow_running,
                 )
 
             with col_voice3:
-                voice_options = ["Alexandra", "Antoni", "Austin", "Clyde", "Dave", "Domi",
-                                "Drew", "Fin", "Hope", "James", "Jane", "Paul",
-                                "Rachel", "Sarah", "Thomas"]
-                current_voice_index = voice_options.index(st.session_state.voice_preset) if st.session_state.voice_preset in voice_options else 9
+                voice_options = [
+                    "Alexandra",
+                    "Antoni",
+                    "Austin",
+                    "Clyde",
+                    "Dave",
+                    "Domi",
+                    "Drew",
+                    "Fin",
+                    "Hope",
+                    "James",
+                    "Jane",
+                    "Paul",
+                    "Rachel",
+                    "Sarah",
+                    "Thomas",
+                ]
+                current_voice_index = (
+                    voice_options.index(st.session_state.voice_preset)
+                    if st.session_state.voice_preset in voice_options
+                    else 9
+                )
                 st.session_state.voice_preset = st.selectbox(
                     "Voice:",
                     options=voice_options,
                     index=current_voice_index,
                     key="voice_preset_select",
-                    disabled=st.session_state.workflow_running
+                    disabled=st.session_state.workflow_running,
                 )
 
             st.markdown("---")  # Separator before buttons
 
             # Determine button labels based on whether workflow has run
             has_run = st.session_state.workflow_outputs is not None
-            main_button_label = "Re-run entire Griptape Nodes workflow" if has_run else "Run Griptape Nodes Workflow to Generate Audio"
+            main_button_label = (
+                "Re-run entire Griptape Nodes workflow" if has_run else "Run Griptape Nodes Workflow to Generate Audio"
+            )
 
             # Re-run voice generation button (appears after first run)
             voice_params_changed = voice_parameters_changed()
@@ -617,7 +672,7 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                     type="primary",
                     use_container_width=True,
                     disabled=not voice_params_changed or st.session_state.workflow_running,
-                    key="rerun_voice_button"
+                    key="rerun_voice_button",
                 ):
                     st.session_state.workflow_running = True
                     try:
@@ -645,7 +700,9 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                             st.session_state.last_run_voice_preset = st.session_state.voice_preset
                             # Update only voice audio artifact in outputs
                             if st.session_state.workflow_outputs is not None:
-                                st.session_state.workflow_outputs["voice_audio_artifact"] = result.get("voice_audio_artifact")
+                                st.session_state.workflow_outputs["voice_audio_artifact"] = result.get(
+                                    "voice_audio_artifact"
+                                )
                             st.success("✓ Voice audio regenerated successfully!")
                     except Exception as e:
                         st.error(f"✗ Voice regeneration failed: {e}")
@@ -659,7 +716,7 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                 type="primary",
                 use_container_width=True,
                 disabled=not json_valid or st.session_state.workflow_running,
-                key="run_workflow_button"
+                key="run_workflow_button",
             ):
                 st.session_state.workflow_running = True
                 try:
@@ -713,9 +770,8 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                     with col_audio1:
                         st.markdown("**Voice Audio:**")
                         voice_artifact = outputs.get("voice_audio_artifact")
-                        if voice_artifact and hasattr(voice_artifact, "value"):
-                            # Extract the URL/path from the AudioUrlArtifact
-                            audio_url = voice_artifact.value
+                        if voice_artifact:
+                            audio_url = get_audio_artifact_value(voice_artifact)
                             if audio_url:
                                 st.audio(audio_url)
                             else:
@@ -726,9 +782,8 @@ def main() -> None:  # noqa: PLR0915, PLR0912, C901
                     with col_audio2:
                         st.markdown("**Music Audio:**")
                         music_artifact = outputs.get("music_audio_artifact")
-                        if music_artifact and hasattr(music_artifact, "value"):
-                            # Extract the URL/path from the AudioUrlArtifact
-                            audio_url = music_artifact.value
+                        if music_artifact:
+                            audio_url = get_audio_artifact_value(music_artifact)
                             if audio_url:
                                 st.audio(audio_url)
                             else:

@@ -11,6 +11,8 @@ dependencies = [
     "streamlit>=1.41.0",
     "python-dotenv>=1.0.0",
     "griptape-nodes @ git+https://github.com/griptape-ai/griptape-nodes.git@main",
+    "fastapi[standard]>=0.115.0",
+    "httpx>=0.28.0",
 ]
 
 [dependency-groups]
